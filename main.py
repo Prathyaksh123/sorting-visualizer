@@ -7,13 +7,14 @@ Sets up the Tkinter GUI and wires up event handlers.
 Features:
   • 6 sorting algorithms selectable from a dropdown
   • Generate Array button to create a new random dataset
+  • Custom array input field (comma-separated values)
   • Start Sorting and Stop buttons to control execution
   • Speed and Array-size sliders
   • Elapsed-time display
 """
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import time
 
 from utils import generate_array
@@ -44,7 +45,7 @@ class SortingVisualizer:
     def __init__(self, root):
         self.root = root
         self.root.title("Sorting Algorithm Visualizer")
-        self.root.geometry("900x650")
+        self.root.geometry("900x700")
         self.root.config(bg="#f0f0f0")
         self.root.resizable(False, False)
 
@@ -125,6 +126,27 @@ class SortingVisualizer:
         self.size_slider.grid(row=1, column=3, columnspan=2, padx=5, pady=5, sticky=tk.W)
         self.size_slider.set(30)
 
+        # Row 2 – Custom array input
+        tk.Label(ctrl, text="Custom array:", bg="#e0e0e0",
+                 font=("Arial", 10)).grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+
+        self.array_entry = tk.Entry(ctrl, width=45, font=("Arial", 10))
+        self.array_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
+        self.array_entry.insert(0, "e.g.  34, 12, 90, 5, 67")
+        # Clear placeholder text on first click
+        self.array_entry.bind("<FocusIn>", self._clear_placeholder)
+
+        self.btn_load = tk.Button(
+            ctrl, text="Load Array", command=self.load_custom_array,
+            bg="#FF9800", fg="white", font=("Arial", 10, "bold"),
+            activebackground="#F57C00", cursor="hand2",
+        )
+        self.btn_load.grid(row=2, column=3, padx=5, pady=5)
+
+        self.error_label = tk.Label(ctrl, text="", bg="#e0e0e0",
+                                    font=("Arial", 9), fg="red")
+        self.error_label.grid(row=2, column=4, padx=5, pady=5)
+
         # ── Status bar (time display) ────────────────────────────────
         status = tk.Frame(self.root, bg="#e0e0e0")
         status.pack(fill=tk.X, padx=10, pady=(0, 5))
@@ -181,8 +203,51 @@ class SortingVisualizer:
         size = int(self.size_slider.get())
         self.data = generate_array(size, 10, 150)
         self.draw(self.data, ['blue'] * len(self.data))
-        self.time_label.config(text="Time: 0.000 s")
-        self.status_label.config(text="Ready")
+        if self.time_label.winfo_exists():
+            self.time_label.config(text="Time: 0.000 s")
+            self.status_label.config(text="Ready")
+            self.error_label.config(text="")
+
+    def load_custom_array(self):
+        """Parse the user's comma-separated input and load it as the array."""
+        if self.is_sorting:
+            return
+
+        raw = self.array_entry.get().strip()
+        if not raw or raw.startswith("e.g."):
+            if self.error_label.winfo_exists():
+                self.error_label.config(text="Enter numbers first!")
+            return
+
+        try:
+            # Split by commas, strip whitespace, convert to integers
+            values = [int(v.strip()) for v in raw.split(",") if v.strip()]
+        except ValueError:
+            if self.error_label.winfo_exists():
+                self.error_label.config(text="Invalid input! Use integers only.")
+            return
+
+        if len(values) < 2:
+            if self.error_label.winfo_exists():
+                self.error_label.config(text="Enter at least 2 numbers.")
+            return
+
+        if any(v <= 0 for v in values):
+            if self.error_label.winfo_exists():
+                self.error_label.config(text="All values must be > 0.")
+            return
+
+        self.data = values
+        self.draw(self.data, ['blue'] * len(self.data))
+        if self.time_label.winfo_exists():
+            self.time_label.config(text="Time: 0.000 s")
+            self.status_label.config(text=f"Custom array loaded ({len(values)} elements)")
+            self.error_label.config(text="")
+
+    def _clear_placeholder(self, event):
+        """Remove placeholder text when the entry is clicked."""
+        if self.array_entry.get().startswith("e.g."):
+            self.array_entry.delete(0, tk.END)
 
     def start_sort(self):
         """Launch the selected sorting algorithm."""
@@ -199,8 +264,13 @@ class SortingVisualizer:
         # Lock the UI controls while sorting
         self.is_sorting = True
         self.stop_requested = False
+        if not self.btn_start.winfo_exists():
+            return
+            
         self.btn_start.config(state=tk.DISABLED)
         self.btn_generate.config(state=tk.DISABLED)
+        self.btn_load.config(state=tk.DISABLED)
+        self.array_entry.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
         self.status_label.config(text=f"Sorting with {alg_name}…")
 
@@ -214,19 +284,25 @@ class SortingVisualizer:
         # Record end time
         elapsed = time.perf_counter() - t0
 
-        # Update time display
-        self.time_label.config(text=f"Time: {elapsed:.3f} s")
+        # Safely attempt to update UI incase window was destroyed
+        try:
+            if self.time_label.winfo_exists():
+                self.time_label.config(text=f"Time: {elapsed:.3f} s")
 
-        if self.stop_requested:
-            self.status_label.config(text="Stopped")
-        else:
-            self.status_label.config(text="Done ✓")
+                if self.stop_requested:
+                    self.status_label.config(text="Stopped")
+                else:
+                    self.status_label.config(text="Done ✓")
 
-        # Unlock the UI
-        self.is_sorting = False
-        self.btn_start.config(state=tk.NORMAL)
-        self.btn_generate.config(state=tk.NORMAL)
-        self.btn_stop.config(state=tk.DISABLED)
+                # Unlock the UI
+                self.is_sorting = False
+                self.btn_start.config(state=tk.NORMAL)
+                self.btn_generate.config(state=tk.NORMAL)
+                self.btn_load.config(state=tk.NORMAL)
+                self.array_entry.config(state=tk.NORMAL)
+                self.btn_stop.config(state=tk.DISABLED)
+        except Exception:
+            pass
 
     def stop_sort(self):
         """Signal the running algorithm to stop."""
